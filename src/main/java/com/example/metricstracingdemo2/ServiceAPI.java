@@ -24,54 +24,69 @@ import io.opentracing.propagation.TextMapExtractAdapter;
 @RequestMapping("/")
 public class ServiceAPI {
 
+	@Autowired
+	MeterRegistry registry;
+	
+	// vars used by 'healthCheck' endpoint
 	public static long instanceId = new Random().nextInt();
 	public static int count = 0;
 	
+	// vars used by 'random' endpoint
 	public static Random random = new Random(System.currentTimeMillis());
-
-	@Autowired
-	MeterRegistry registry;
-
+	public Tracer tracer = new Configuration("back-end-service").getTracer();
+	
+	/*
+	 * returns a string containing current date/time, internal request counter and message
+	 */	
 	@GetMapping
 	public String healthCheck() {
-		count += 1;
-		Date date = new Date();
-		String dateformat = SimpleDateFormat.getDateTimeInstance(SimpleDateFormat.SHORT, SimpleDateFormat.FULL)
-				.format(date);
-		String output = "<h3>The metrics-tracing-demo-2 app is up and running!</h3>" + "<br/>Instance: " + instanceId + ", "
-				+ "<br/>DateTime: " + dateformat + "<br/>CallCount: " + count;
+		// get response string
+		String output = makeHealthCheckResponse();
 		
-		registry.counter("custom.metrics.reqcount", "value", "GET_ROOT" ).increment();
-		// registry.gauge("custom.metrics.reqgauge", count);
-		
+		// increment Prometheus 'request-count' metric
+		registry.counter("custom.metrics.request.count", "value", "HEALTHCHECK").increment();
+
+		// return response
 		return output;
 		
 	}
 
-	@GetMapping("/random")
-	public String randomNumber(@RequestHeader HttpHeaders headers) {
-		/*
-		 * String parentContext = headers.getFirst("Parent-Context"); Span mainSpan =
-		 * tracer.buildSpan(parentContext).start(); String thisContext =
-		 * "get-random-back-end"; Span getNumberSpan =
-		 * tracer.buildSpan(thisContext).asChildOf(mainSpan).start();
-		 */
+	private String makeHealthCheckResponse() {
 		
-        SpanContext parentContext = tracer.extract(Format.Builtin.HTTP_HEADERS, new TextMapExtractAdapter(headers.toSingleValueMap()));
-        Span span = tracer.buildSpan("get-random-back-end").asChildOf(parentContext).start();		
+		// increment internal counter
+		count += 1;
 		
-		int randomInt = random.nextInt();
-		String output = String.valueOf(randomInt);
+		// get and format date
+		Date date = new Date();
+		String dateformat = SimpleDateFormat.getDateTimeInstance(SimpleDateFormat.SHORT, SimpleDateFormat.FULL).format(date);
 		
-		span.finish();
-		/*
-		 * getNumberSpan.finish(); mainSpan.finish();
-		 */
-		
+		// assemble output and return
+		String output = "<h3>The metrics-tracing BACK-END-API is up and running!</h3>" + "<br/>Instance: " + instanceId
+				+ ", " + "<br/>DateTime: " + dateformat + "<br/>CallCount: " + count;	
 		return output;
 	}	
 	
-	public Tracer tracer = new Configuration("back-end-service").getTracer();
+	/*
+	 * generates and returns a random integer
+	 */
+	@GetMapping("/random")
+	public String randomNumber(@RequestHeader HttpHeaders headers) {
 
+		// retrieve parent span tracing context from request header
+        SpanContext parentContext = tracer.extract(Format.Builtin.HTTP_HEADERS, new TextMapExtractAdapter(headers.toSingleValueMap()));
+
+        // start trace
+        Span span = tracer.buildSpan("get-random-back-end").asChildOf(parentContext).start();		
+		
+        // get random number result
+		int randomInt = random.nextInt();
+		String output = String.valueOf(randomInt);
+		
+		// Mark the trace as completed
+		span.finish();
+
+		// return the result
+		return output;
+	}	
 	
 }
